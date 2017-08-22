@@ -1,12 +1,3 @@
-PATH
-  remote: /Users/vishrut/git-repos/azure-sdk-for-ruby/runtime/ms_rest_azure
-  specs:
-    ms_rest_azure (0.8.1)
-      concurrent-ruby (~> 1.0)
-      faraday (~> 0.9)
-      faraday-cookie_jar (~> 0.0.6)
-      ms_rest (~> 0.7.0)
-
 GEM
   remote: https://rubygems.org/
   specs:
@@ -41,6 +32,11 @@ GEM
       concurrent-ruby (~> 1.0)
       faraday (~> 0.9)
       timeliness (~> 0.3)
+    ms_rest_azure (0.8.1)
+      concurrent-ruby (~> 1.0)
+      faraday (~> 0.9)
+      faraday-cookie_jar (~> 0.0.6)
+      ms_rest (~> 0.7.0)
     multipart-post (2.0.0)
     public_suffix (2.0.5)
     rake (11.3.0)
@@ -79,7 +75,6 @@ DEPENDENCIES
   climate_control
   dotenv (~> 2.1)
   haikunator (~> 1.1)
-  ms_rest_azure!
   rake (~> 11.1)
   rspec (~> 3.4)
   vcr (~> 3.0)
