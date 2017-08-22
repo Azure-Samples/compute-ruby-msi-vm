@@ -6,14 +6,14 @@ require 'azure_mgmt_storage'
 require 'azure_mgmt_compute'
 
 WEST_US = 'westus'
-GROUP_NAME = 'azure-sample-compute-group'
+GROUP_NAME = 'azure-sample-compute-msi'
 
 StorageModels = Azure::ARM::Storage::Models
 NetworkModels = Azure::ARM::Network::Models
 ComputeModels = Azure::ARM::Compute::Models
 ResourceModels = Azure::ARM::Resources::Models
 
-# This sample shows how to manage a Azure virtual machines using using the Azure Resource Manager APIs for Ruby.
+# This sample shows how to create a Azure virtual machines with Managed Service Identity using the Azure Resource Manager APIs for Ruby.
 #
 # This script expects that the following environment vars are set:
 #
@@ -26,7 +26,6 @@ def run_example
   #
   # Create the Resource Manager Client with an Application (service principal) token provider
   #
-  MsRest.use_ssl_cert
   subscription_id = ENV['AZURE_SUBSCRIPTION_ID'] || '11111111-1111-1111-1111-111111111111' # your Azure Subscription Id
   provider = MsRestAzure::ApplicationTokenProvider.new(
       ENV['AZURE_TENANT_ID'],
@@ -101,7 +100,7 @@ def run_example
   end
   print_item public_ip = network_client.public_ipaddresses.create_or_update(GROUP_NAME, 'sample-ruby-pubip', public_ip_params)
 
-  vm = create_vm(compute_client, network_client, WEST_US, 'firstvm', storage_account, vnet.subnets[0], public_ip)
+  vm = create_vm(compute_client, network_client, WEST_US, 'msi-vm', storage_account, vnet.subnets[0], public_ip)
 
   puts 'Listing all of the resources within the group'
   resource_client.resources.list_by_resource_group(GROUP_NAME).each do |res|
@@ -111,7 +110,9 @@ def run_example
 
   export_template(resource_client)
 
-  puts "Connect to your new virtual machine that has Managed Service Identity extension running on localhost:50432 via: 'ssh -p 22 #{vm.os_profile.admin_username}@#{public_ip.dns_settings.fqdn}'. Admin Password is: Pa$$w0rd92"
+  puts "Thank you for creating managed service identity Azure VM."
+  puts "Use `netstat -tlnp` command verify that MSI service is running at 127.0.0.1:50342 address."
+  puts "Connect to your new virtual machine via: 'ssh -p 22 #{vm.os_profile.admin_username}@#{public_ip.dns_settings.fqdn}'. Admin Password is: Pa$$w0rd92"
 
   puts 'Press any key to continue and delete the sample resources'
   gets
@@ -210,6 +211,7 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
       ]
     end
 
+    # Use System Assigned Identity for the VM
     vm.identity = ComputeModels::VirtualMachineIdentity.new.tap do |identity|
       identity.type = ComputeModels::ResourceIdentityType::SystemAssigned
     end
@@ -235,7 +237,7 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
 
   print_item vm = compute_client.virtual_machines.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", vm_create_params)
 
-  puts "Install Managed Service Identity Extension..."
+  puts "Install Managed Service Identity Extension"
   ext_name = 'msiextension'
   vm_extension = ComputeModels::VirtualMachineExtension.new.tap do |extension|
     extension.publisher = 'Microsoft.ManagedIdentity'
