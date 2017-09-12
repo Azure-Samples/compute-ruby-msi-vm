@@ -300,7 +300,7 @@ exit
 
 <a id="delete"></a>
 ### Delete the resources
-Now, we will delete all the resources create using this example. Please comment this out to keep the resources alive in you Azure subscription.
+Now, we will delete all the resources created using this example. Please comment this out to keep the resources alive in you Azure subscription.
 
 ```ruby
 resource_client.resource_groups.delete(GROUP_NAME)
