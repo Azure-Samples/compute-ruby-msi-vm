@@ -68,7 +68,7 @@ This sample demonstrates how to create your Azure virtual machines with Managed 
     ```
 
 <a id="example"></a>
-## What is example.rb doing?
+## What does example.rb doing?
 
 This sample starts by setting up ResourceManagementClient, the resource provider clients, a resource group, and a storage account using your subscription and credentials.
 
@@ -122,6 +122,7 @@ subscription_id = ENV['AZURE_SUBSCRIPTION_ID'] || '11111111-1111-1111-1111-11111
 
 <a id="vnet"></a>
 ### Create a virtual network
+Now, we will create a virtual network and configure subnet for the virtual machine.
 
 ```ruby
 puts 'Creating a virtual network for the VM'
@@ -145,6 +146,7 @@ print_item vnet = network_client.virtual_networks.create_or_update(GROUP_NAME, '
 
 <a id="ipaddress"></a>
 ### Create a public IP address
+Now, we will create a public IP address using dynamic IP allocation method for the Azure VM.
 
 ```ruby
 puts 'Creating a public IP address for the VM'
@@ -160,7 +162,8 @@ print_item public_ip = network_client.public_ipaddresses.create_or_update(GROUP_
 
 <a id="nic"></a>
 ### Create a network interface
-
+Now, we will create a network interface and assign the public ip address created in previous step.
+ 
 ```ruby
 print_item nic = network_client.network_interfaces.create_or_update(
     GROUP_NAME,
@@ -181,6 +184,8 @@ print_item nic = network_client.network_interfaces.create_or_update(
 
 <a id="vm"></a>
 ### Create a virtual machine with system identity
+Now, we will set virtual machine parameters like `OSProfile`, `StorageProfile`, `OSDisk`, `HardwareProfile` & `NetworkProfile` as usual. We will
+also set the `VirtualMachineIdentity` to be `SystemAssigned` specifically for creating managed service identity VM and then create the virtual machine.
 
 ```ruby
 puts 'Creating a Ubuntu 16.04.0-LTS Standard DS2 V2 virtual machine w/ a public IP'
@@ -251,6 +256,7 @@ print_item vm = compute_client.virtual_machines.create_or_update(GROUP_NAME, "sa
 
 <a id="extension"></a>
 ### Add MSI extension to the VM
+Now, we will add an VM extension `ManagedIdentityExtensionForLinux` for Azure VM and configure it to run on port `50342`.
 
 ```ruby
 puts "Install Managed Service Identity Extension"
@@ -271,6 +277,9 @@ vm_ext = compute_client.virtual_machine_extensions.create_or_update(GROUP_NAME, 
 
 <a id="msi-extension"></a>
 ### Verify MSI extension is running on VM by logging-in via ssh
+Once the Azure VM has been created, we will verify that MSI extension is running on this VM. Managed Service Identity extension will run on 
+`localhost` and configured port, here `50342`. Follow example [here](https://github.com/Azure/azure-sdk-for-ruby/blob/master/runtime/ms_rest_azure/README.md#utilizing-msimanaged-service-identity-token-provider) to
+find out the usage.
 
 ```
 ssh -p 22 notAdmin@msi-vm-domain-name-label.westus.cloudapp.azure.com
@@ -291,6 +300,7 @@ exit
 
 <a id="delete"></a>
 ### Delete the resources
+Now, we will delete all the resources create using this example. Please comment this out to keep the resources alive in you Azure subscription.
 
 ```ruby
 resource_client.resource_groups.delete(GROUP_NAME)
