@@ -1,13 +1,5 @@
-## [project-title] Changelog
-
-<a name="x.y.z"></a>
-# x.y.z (yyyy-mm-dd)
-
-*Features*
-* ...
-
-*Bug Fixes*
-* ...
-
-*Breaking Changes*
-* ...
+ ## 2017.09.12
+  
+ *Features*
+ * Adding initial sample to create Managed Service Identity Azure virtual machine.
+ 
