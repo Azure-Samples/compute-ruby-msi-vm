@@ -4,6 +4,7 @@ require 'azure_mgmt_resources'
 require 'azure_mgmt_network'
 require 'azure_mgmt_storage'
 require 'azure_mgmt_compute'
+require 'azure_mgmt_authorization'
 
 WEST_US = 'westus'
 GROUP_NAME = 'azure-sample-compute-msi'
@@ -12,6 +13,7 @@ StorageModels = Azure::ARM::Storage::Models
 NetworkModels = Azure::ARM::Network::Models
 ComputeModels = Azure::ARM::Compute::Models
 ResourceModels = Azure::ARM::Resources::Models
+AuthorizationModels = Azure::ARM::Authorization::Models
 
 # This sample shows how to create a Azure virtual machines with Managed Service Identity using the Azure Resource Manager APIs for Ruby.
 #
@@ -40,6 +42,8 @@ def run_example
   storage_client.subscription_id = subscription_id
   compute_client = Azure::ARM::Compute::ComputeManagementClient.new(credentials)
   compute_client.subscription_id = subscription_id
+  authorization_client = Azure::ARM::Authorization::AuthorizationManagementClient.new(credentials)
+  authorization_client.subscription_id = subscription_id
 
   #
   # Managing resource groups
@@ -50,7 +54,7 @@ def run_example
 
   # Create Resource group
   puts 'Create Resource Group'
-  print_group resource_client.resource_groups.create_or_update(GROUP_NAME, resource_group_params)
+  print_group resource_group = resource_client.resource_groups.create_or_update(GROUP_NAME, resource_group_params)
 
   postfix = rand(1000)
   storage_account_name = "rubystor#{postfix}"
@@ -101,6 +105,21 @@ def run_example
   print_item public_ip = network_client.public_ipaddresses.create_or_update(GROUP_NAME, 'sample-ruby-pubip', public_ip_params)
 
   vm = create_vm(compute_client, network_client, WEST_US, 'msi-vm', storage_account, vnet.subnets[0], public_ip)
+
+  puts "Getting the Role ID of Contributor of a Resource group: #{GROUP_NAME}"
+  role_name = 'Contributor'
+  roles = authorization_client.role_definitions.list(resource_group.id, "roleName eq '#{role_name}'")
+  contributor_role = roles.first
+  puts contributor_role
+
+  puts 'Creating the role assignment for the VM'
+  role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
+    role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
+      property.principal_id = vm.identity.principal_id
+      property.role_definition_id = contributor_role.id
+    end
+  end
+  authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
 
   puts 'Listing all of the resources within the group'
   resource_client.resources.list_by_resource_group(GROUP_NAME).each do |res|
@@ -250,9 +269,9 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
     extension.location = WEST_US
   end
 
-  vm_ext = compute_client.virtual_machine_extensions.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", ext_name, vm_extension)
+  compute_client.virtual_machine_extensions.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", ext_name, vm_extension)
 
-  vm
+  compute_client.virtual_machines.get(GROUP_NAME, "sample-ruby-vm-#{vm_name}")
 end
 
 if $0 == __FILE__

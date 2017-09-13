@@ -16,6 +16,7 @@ This sample demonstrates how to create your Azure virtual machines with Managed 
     - [Create a network interface](#nic)
     - [Create a virtual machine with system identity](#vm)
     - [Add MSI extension to the VM](#extension)
+    - [Create role assignment for the VM](#role-assignment)
     - [Verify MSI extension is running on VM by logging-in via ssh](#msi-extension)
     - [Delete the resources](#delete)
 
@@ -46,9 +47,12 @@ This sample demonstrates how to create your Azure virtual machines with Managed 
     
 5. Create an Azure service principal either through
 
-    [Azure CLI](https://azure.microsoft.com/documentation/articles/resource-group-authenticate-service-principal-cli/),
+    [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/create-an-azure-service-principal-azure-cli?toc=%2Fazure%2Fazure-resource-manager%2Ftoc.json&view=azure-cli-latest),
     [PowerShell](https://azure.microsoft.com/documentation/articles/resource-group-authenticate-service-principal/)
     or [the portal](https://azure.microsoft.com/documentation/articles/resource-group-create-service-principal-portal/).
+
+    :exclamation: NOTE :exclamation: Please make sure to create an role assignment with `Owner` role. In case of insufficient permissions, role
+    assignment may fail for this sample.  
 
 6. Set the following environment variables using the information from the service principle that you created.
 
@@ -273,6 +277,32 @@ vm_extension = ComputeModels::VirtualMachineExtension.new.tap do |extension|
 end
 
 vm_ext = compute_client.virtual_machine_extensions.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", ext_name, vm_extension)
+```
+
+<a id="role-assignment"></a>
+### Create role assignment for the VM
+Now, we will retrieve the default rbac role named as `Contributor`. To know more about the
+default roles please visit [built-in-roles](https://docs.microsoft.com/en-us/azure/active-directory/role-based-access-built-in-roles).
+
+```ruby
+puts "Getting the Role ID of Contributor of a Resource group: #{GROUP_NAME}"
+role_name = 'Contributor'
+roles = authorization_client.role_definitions.list(resource_group.id, "roleName eq '#{role_name}'")
+contributor_role = roles.first
+```
+
+Now, we will assign `Contributor` role at the resource group level to allow managing Azure resources inside
+this resource group.
+
+```ruby
+puts 'Creating the role assignment for the VM'
+role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
+  role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
+    property.principal_id = vm.identity.principal_id
+    property.role_definition_id = contributor_role.id
+  end
+end
+authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
 ```
 
 <a id="msi-extension"></a>
