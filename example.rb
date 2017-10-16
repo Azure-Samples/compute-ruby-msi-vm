@@ -9,11 +9,17 @@ require 'azure_mgmt_authorization'
 WEST_US = 'westus'
 GROUP_NAME = 'azure-sample-compute-msi'
 
-StorageModels = Azure::ARM::Storage::Models
-NetworkModels = Azure::ARM::Network::Models
-ComputeModels = Azure::ARM::Compute::Models
-ResourceModels = Azure::ARM::Resources::Models
-AuthorizationModels = Azure::ARM::Authorization::Models
+Storage = Azure::Storage::Profiles::Latest::Mgmt
+Network = Azure::Network::Profiles::Latest::Mgmt
+Compute = Azure::Compute::Profiles::Latest::Mgmt
+Resources = Azure::Resources::Profiles::Latest::Mgmt
+Authorization = Azure::Authorization::Profiles::Latest::Mgmt
+
+StorageModels = Storage::Models
+NetworkModels = Network::Models
+ComputeModels = Compute::Models
+ResourceModels = Resources::Models
+AuthorizationModels = Authorization::Models
 
 # This sample shows how to create a Azure virtual machines with Managed Service Identity using the Azure Resource Manager APIs for Ruby.
 #
@@ -34,21 +40,22 @@ def run_example
       ENV['AZURE_CLIENT_ID'],
       ENV['AZURE_CLIENT_SECRET'])
   credentials = MsRest::TokenCredentials.new(provider)
-  resource_client = Azure::ARM::Resources::ResourceManagementClient.new(credentials)
-  resource_client.subscription_id = subscription_id
-  network_client = Azure::ARM::Network::NetworkManagementClient.new(credentials)
-  network_client.subscription_id = subscription_id
-  storage_client = Azure::ARM::Storage::StorageManagementClient.new(credentials)
-  storage_client.subscription_id = subscription_id
-  compute_client = Azure::ARM::Compute::ComputeManagementClient.new(credentials)
-  compute_client.subscription_id = subscription_id
-  authorization_client = Azure::ARM::Authorization::AuthorizationManagementClient.new(credentials)
-  authorization_client.subscription_id = subscription_id
+
+  options = {
+      credentials: credentials,
+      subscription_id: subscription_id
+  }
+
+  resource_client = Resources::Client.new(options)
+  network_client = Network::Client.new(options)
+  storage_client = Storage::Client.new(options)
+  compute_client = Compute::Client.new(options)
+  authorization_client = Authorization::Client.new(options)
 
   #
   # Managing resource groups
   #
-  resource_group_params = Azure::ARM::Resources::Models::ResourceGroup.new.tap do |rg|
+  resource_group_params = resource_client.model_classes.resource_group.new.tap do |rg|
     rg.location = WEST_US
   end
 
