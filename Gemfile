@@ -13,9 +13,9 @@ group :development, :test do
   gem 'climate_control'
 end
 
-gem 'azure_mgmt_authorization', '~>0.12.0'
-gem 'azure_mgmt_resources',     '~>0.12.0'
-gem 'azure_mgmt_compute',       '~>0.12.0'
-gem 'azure_mgmt_network',       '~>0.12.0'
-gem 'azure_mgmt_storage',       '~>0.12.0'
+gem 'azure_mgmt_authorization', '~>0.15.0'
+gem 'azure_mgmt_resources',     '~>0.15.0'
+gem 'azure_mgmt_compute',       '~>0.15.0'
+gem 'azure_mgmt_network',       '~>0.15.0'
+gem 'azure_mgmt_storage',       '~>0.15.0'
 gem 'haikunator',               '~>1.1'
