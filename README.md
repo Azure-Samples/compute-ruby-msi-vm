@@ -356,7 +356,7 @@ Once the Azure VM has been created, we will verify that MSI extension is running
 find out the usage.
 
 ```
-ssh -p 22 notAdmin@msi-vm-domain-name-label.westus.cloudapp.azure.com
+ssh -p 22 notAdmin@msi-vm-domain-name-label.westcentralus.cloudapp.azure.com
 ```
 ```
 notAdmin@msi-vm:~$ netstat -tlnp
