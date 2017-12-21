@@ -1,25 +1,37 @@
 #!/usr/bin/env ruby
 
+require 'dotenv'
+Dotenv.load(File.join(File.dirname(__FILE__), '.env'))
+
 require 'azure_mgmt_resources'
 require 'azure_mgmt_network'
 require 'azure_mgmt_storage'
 require 'azure_mgmt_compute'
 require 'azure_mgmt_authorization'
+require 'azure_mgmt_msi'
 
-WEST_US = 'westus'
 GROUP_NAME = 'azure-sample-compute-msi'
+LOCATION = 'westcentralus'
+
+USER_ASSIGNED_IDENTITY = true
+SYSTEM_ASSIGNED_IDENTITY = false
 
 Storage = Azure::Storage::Profiles::Latest::Mgmt
 Network = Azure::Network::Profiles::Latest::Mgmt
 Compute = Azure::Compute::Profiles::Latest::Mgmt
 Resources = Azure::Resources::Profiles::Latest::Mgmt
 Authorization = Azure::Authorization::Profiles::Latest::Mgmt
+Msi = Azure::ManagedServiceIdentity::Profiles::Latest::Mgmt
 
 StorageModels = Storage::Models
 NetworkModels = Network::Models
 ComputeModels = Compute::Models
 ResourceModels = Resources::Models
 AuthorizationModels = Authorization::Models
+MsiModels = Msi::Models
+
+ResourceIdentityType = ComputeModels::ResourceIdentityType
+
 
 # This sample shows how to create a Azure virtual machines with Managed Service Identity using the Azure Resource Manager APIs for Ruby.
 #
@@ -35,15 +47,14 @@ def run_example
   # Create the Resource Manager Client with an Application (service principal) token provider
   #
   subscription_id = ENV['AZURE_SUBSCRIPTION_ID'] || '11111111-1111-1111-1111-111111111111' # your Azure Subscription Id
-  provider = MsRestAzure::ApplicationTokenProvider.new(
-      ENV['AZURE_TENANT_ID'],
-      ENV['AZURE_CLIENT_ID'],
-      ENV['AZURE_CLIENT_SECRET'])
-  credentials = MsRest::TokenCredentials.new(provider)
+
+  MsRest.use_ssl_cert
 
   options = {
-      credentials: credentials,
-      subscription_id: subscription_id
+      tenant_id: ENV['AZURE_TENANT_ID'],
+      client_id: ENV['AZURE_CLIENT_ID'],
+      client_secret: ENV['AZURE_CLIENT_SECRET'],
+      subscription_id: subscription_id,
   }
 
   resource_client = Resources::Client.new(options)
@@ -56,18 +67,29 @@ def run_example
   # Managing resource groups
   #
   resource_group_params = resource_client.model_classes.resource_group.new.tap do |rg|
-    rg.location = WEST_US
+    rg.location = LOCATION
   end
 
   # Create Resource group
   puts 'Create Resource Group'
   print_group resource_group = resource_client.resource_groups.create_or_update(GROUP_NAME, resource_group_params)
 
+  # Create a user assigned identity
+  if USER_ASSIGNED_IDENTITY
+    puts 'Create User Assigned Identity'
+    msi_client = Msi::Client.new(options)
+    identity_create_params = MsiModels::Identity.new.tap do |identity|
+      identity.location = LOCATION
+    end
+    print_item user_assigned_identity = msi_client.user_assigned_identities.create_or_update(GROUP_NAME, "myMsiIdentity", identity_create_params)
+  end
+
+  # Create storage account
   postfix = rand(1000)
   storage_account_name = "rubystor#{postfix}"
   puts "Creating a premium storage account with encryption off named #{storage_account_name} in resource group #{GROUP_NAME}"
   storage_create_params = StorageModels::StorageAccountCreateParameters.new.tap do |account|
-    account.location = WEST_US
+    account.location = LOCATION
     account.sku = StorageModels::Sku.new.tap do |sku|
       sku.name = StorageModels::SkuName::PremiumLRS
       sku.tier = StorageModels::SkuTier::Premium
@@ -83,9 +105,10 @@ def run_example
   end
   print_item storage_account = storage_client.storage_accounts.create(GROUP_NAME, storage_account_name, storage_create_params)
 
+
   puts 'Creating a virtual network for the VM'
   vnet_create_params = NetworkModels::VirtualNetwork.new.tap do |vnet|
-    vnet.location = WEST_US
+    vnet.location = LOCATION
     vnet.address_space = NetworkModels::AddressSpace.new.tap do |addr_space|
       addr_space.address_prefixes = ['10.0.0.0/16']
     end
@@ -103,7 +126,7 @@ def run_example
 
   puts 'Creating a public IP address for the VM'
   public_ip_params = NetworkModels::PublicIPAddress.new.tap do |ip|
-    ip.location = WEST_US
+    ip.location = LOCATION
     ip.public_ipallocation_method = NetworkModels::IPAllocationMethod::Dynamic
     ip.dns_settings = NetworkModels::PublicIPAddressDnsSettings.new.tap do |dns|
       dns.domain_name_label = 'msi-vm-domain-name-label'
@@ -111,22 +134,39 @@ def run_example
   end
   print_item public_ip = network_client.public_ipaddresses.create_or_update(GROUP_NAME, 'sample-ruby-pubip', public_ip_params)
 
-  vm = create_vm(compute_client, network_client, WEST_US, 'msi-vm', storage_account, vnet.subnets[0], public_ip)
+  puts 'Creating VM'
+  vm = create_vm(compute_client, network_client, authorization_client, LOCATION, 'msi-vm', storage_account, vnet.subnets[0], public_ip, user_assigned_identity)
+
+  # By default, the MSI accounts have no permissions
+  # Next is the assignment of permissions to the account
+  # example is Resource group access as Contributor, but
+  # you can assign any permissions you'd want
+
+  msi_accounts_to_assign = []
+  if SYSTEM_ASSIGNED_IDENTITY
+    msi_accounts_to_assign.push(vm.identity.principal_id)
+  end
+  if USER_ASSIGNED_IDENTITY
+    msi_accounts_to_assign.push(user_assigned_identity.principal_id)
+  end
 
   puts "Getting the Role ID of Contributor of a Resource group: #{GROUP_NAME}"
   role_name = 'Contributor'
   roles = authorization_client.role_definitions.list(resource_group.id, "roleName eq '#{role_name}'")
-  contributor_role = roles.first
-  puts contributor_role
+  print_item contributor_role = roles.first
 
+  # Adding resource group scope to the MSI identities
   puts 'Creating the role assignment for the VM'
-  role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
-    role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
-      property.principal_id = vm.identity.principal_id
-      property.role_definition_id = contributor_role.id
+  msi_accounts_to_assign.each do |msi_identity|
+    role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
+      role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
+        property.principal_id = msi_identity
+        property.role_definition_id = contributor_role.id
+      end
     end
+    authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
   end
-  authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
+
 
   puts 'Listing all of the resources within the group'
   resource_client.resources.list_by_resource_group(GROUP_NAME).each do |res|
@@ -180,13 +220,13 @@ def export_template(resource_client)
 end
 
 # Create a Virtual Machine, Install MSI extension and return it
-def create_vm(compute_client, network_client, location, vm_name, storage_acct, subnet, public_ip)
+def create_vm(compute_client, network_client, authorization_client, location, vm_name, storage_acct, subnet, public_ip, user_assigned_identity)
   puts "Creating a network interface for the VM #{vm_name}"
   print_item nic = network_client.network_interfaces.create_or_update(
       GROUP_NAME,
       "sample-ruby-nic-#{vm_name}",
       NetworkModels::NetworkInterface.new.tap do |interface|
-        interface.location = WEST_US
+        interface.location = LOCATION
         interface.ip_configurations = [
             NetworkModels::NetworkInterfaceIPConfiguration.new.tap do |nic_conf|
               nic_conf.name = "sample-ruby-nic-#{vm_name}"
@@ -237,9 +277,23 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
       ]
     end
 
-    # Use System Assigned Identity for the VM
-    vm.identity = ComputeModels::VirtualMachineIdentity.new.tap do |identity|
-      identity.type = ComputeModels::ResourceIdentityType::SystemAssigned
+    puts 'Create an identity'
+    if USER_ASSIGNED_IDENTITY && SYSTEM_ASSIGNED_IDENTITY
+      vm.identity = ComputeModels::VirtualMachineIdentity.new.tap do |identity|
+        identity.type = ResourceIdentityType::SystemAssignedUserAssigned
+        identity.identity_ids = [user_assigned_identity.id]
+      end
+    elsif USER_ASSIGNED_IDENTITY
+      # Use User Assigned Identity for the VM
+      vm.identity = ComputeModels::VirtualMachineIdentity.new.tap do |identity|
+        identity.type = ResourceIdentityType::UserAssigned
+        identity.identity_ids = [user_assigned_identity.id]
+      end
+    elsif SYSTEM_ASSIGNED_IDENTITY
+      # Use System Assigned Identity for the VM
+      vm.identity = ComputeModels::VirtualMachineIdentity.new.tap do |identity|
+        identity.type = ResourceIdentityType::SystemAssigned
+      end
     end
   end
 
@@ -261,6 +315,7 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
     end
   end
 
+  puts 'Created VM'
   print_item vm = compute_client.virtual_machines.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", vm_create_params)
 
   puts "Install Managed Service Identity Extension"
@@ -273,7 +328,7 @@ def create_vm(compute_client, network_client, location, vm_name, storage_acct, s
     extension.settings = Hash.new.tap do |settings|
       settings['port'] = '50342'
     end
-    extension.location = WEST_US
+    extension.location = LOCATION
   end
 
   compute_client.virtual_machine_extensions.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", ext_name, vm_extension)
