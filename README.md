@@ -81,6 +81,12 @@ This sample demonstrates how to create your Azure virtual machines with Managed 
 This sample starts by setting up ResourceManagementClient, the resource provider clients, a resource group, a storage account and a user assigned identity if desired, using your subscription and credentials.
 
 ```ruby
+GROUP_NAME = 'azure-sample-compute-msi'
+LOCATION = 'westcentralus'
+
+USER_ASSIGNED_IDENTITY = true
+SYSTEM_ASSIGNED_IDENTITY = false
+
 subscription_id = ENV['AZURE_SUBSCRIPTION_ID'] || '11111111-1111-1111-1111-111111111111' # your Azure Subscription Id
   options = {
       tenant_id: ENV['AZURE_TENANT_ID'],
@@ -204,7 +210,7 @@ print_item nic = network_client.network_interfaces.create_or_update(
 <a id="vm"></a>
 ### Create a virtual machine with system or user assigned identity
 Now, we will set virtual machine parameters like `OSProfile`, `StorageProfile`, `OSDisk`, `HardwareProfile` & `NetworkProfile` as usual. We will
-also set the `VirtualMachineIdentity` to be `SystemAssigned`, `UserAssigned` or `SystemAssignedUserAssigned` for a creating managed service identity VM and then create the virtual machine.
+also set the `VirtualMachineIdentity` to be `SystemAssigned`, `UserAssigned` or `SystemAssignedUserAssigned` for creating a managed service identity VM and then create the virtual machine.
 
 ```ruby
 puts 'Creating a Ubuntu 16.04.0-LTS Standard DS2 V2 virtual machine w/ a public IP'
