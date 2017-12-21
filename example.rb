@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 
+require 'dotenv'
+Dotenv.load(File.join(File.dirname(__FILE__), '.env'))
+
 require 'azure_mgmt_resources'
 require 'azure_mgmt_network'
 require 'azure_mgmt_storage'
@@ -45,6 +48,8 @@ def run_example
   #
   subscription_id = ENV['AZURE_SUBSCRIPTION_ID'] || '11111111-1111-1111-1111-111111111111' # your Azure Subscription Id
 
+  MsRest.use_ssl_cert
+
   options = {
       tenant_id: ENV['AZURE_TENANT_ID'],
       client_id: ENV['AZURE_CLIENT_ID'],
@@ -69,7 +74,17 @@ def run_example
   puts 'Create Resource Group'
   print_group resource_group = resource_client.resource_groups.create_or_update(GROUP_NAME, resource_group_params)
 
-  # Create a storage account
+  # Create a user assigned identity
+  if USER_ASSIGNED_IDENTITY
+    puts 'Create User Assigned Identity'
+    msi_client = Msi::Client.new(options)
+    identity_create_params = MsiModels::Identity.new.tap do |identity|
+      identity.location = LOCATION
+    end
+    print_item user_assigned_identity = msi_client.user_assigned_identities.create_or_update(GROUP_NAME, "myMsiIdentity", identity_create_params)
+  end
+
+  # Create storage account
   postfix = rand(1000)
   storage_account_name = "rubystor#{postfix}"
   puts "Creating a premium storage account with encryption off named #{storage_account_name} in resource group #{GROUP_NAME}"
@@ -90,15 +105,6 @@ def run_example
   end
   print_item storage_account = storage_client.storage_accounts.create(GROUP_NAME, storage_account_name, storage_create_params)
 
-  # Create a user assigned identity
-  if USER_ASSIGNED_IDENTITY
-    puts 'Create User Assigned Identity'
-    msi_client = Msi::Client.new(options)
-    identity_create_params = MsiModels::Identity.new.tap do |identity|
-      identity.location = LOCATION
-    end
-    print_item user_assigned_identity = msi_client.user_assigned_identities.create_or_update(GROUP_NAME, "myMsiIdentity", identity_create_params)
-  end
 
   puts 'Creating a virtual network for the VM'
   vnet_create_params = NetworkModels::VirtualNetwork.new.tap do |vnet|
@@ -130,6 +136,37 @@ def run_example
 
   puts 'Creating VM'
   vm = create_vm(compute_client, network_client, authorization_client, LOCATION, 'msi-vm', storage_account, vnet.subnets[0], public_ip, user_assigned_identity)
+
+  # By default, the MSI accounts have no permissions
+  # Next is the assignment of permissions to the account
+  # example is Resource group access as Contributor, but
+  # you can assign any permissions you'd want
+
+  msi_accounts_to_assign = []
+  if SYSTEM_ASSIGNED_IDENTITY
+    msi_accounts_to_assign.push(vm.identity.principal_id)
+  end
+  if USER_ASSIGNED_IDENTITY
+    msi_accounts_to_assign.push(user_assigned_identity.principal_id)
+  end
+
+  puts "Getting the Role ID of Contributor of a Resource group: #{GROUP_NAME}"
+  role_name = 'Contributor'
+  roles = authorization_client.role_definitions.list(resource_group.id, "roleName eq '#{role_name}'")
+  print_item contributor_role = roles.first
+
+  # Adding resource group scope to the MSI identities
+  puts 'Creating the role assignment for the VM'
+  msi_accounts_to_assign.each do |msi_identity|
+    role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
+      role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
+        property.principal_id = msi_identity
+        property.role_definition_id = contributor_role.id
+      end
+    end
+    authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
+  end
+
 
   puts 'Listing all of the resources within the group'
   resource_client.resources.list_by_resource_group(GROUP_NAME).each do |res|
@@ -280,37 +317,6 @@ def create_vm(compute_client, network_client, authorization_client, location, vm
 
   puts 'Created VM'
   print_item vm = compute_client.virtual_machines.create_or_update(GROUP_NAME, "sample-ruby-vm-#{vm_name}", vm_create_params)
-
-  # By default, the MSI accounts have no permissions
-  # Next is the assignment of permissions to the account
-  # example is Resource group access as Contributor, but
-  # you can assign any permissions you'd want
- 
-  msi_accounts_to_assign = []
-  if SYSTEM_ASSIGNED_IDENTITY
-    msi_accounts_to_assign.push(vm.identity.principal_id)
-  end
-  if USER_ASSIGNED_IDENTITY
-    msi_accounts_to_assign.push(user_assigned_identity.principal_id)
-  end
-
-  puts "Getting the Role ID of Contributor of a Resource group: #{GROUP_NAME}"
-  role_name = 'Contributor'
-  roles = authorization_client.role_definitions.list(resource_group.id, "roleName eq '#{role_name}'")
-  contributor_role = roles.first
-  puts contributor_role
-
-  # Adding resource group scope to the MSI identities
-  puts 'Creating the role assignment for the VM'
-  msi_accounts_to_assign.each do |msi_identity|
-    role_assignment_params = AuthorizationModels::RoleAssignmentCreateParameters.new.tap do |role_param|
-      role_param.properties = AuthorizationModels::RoleAssignmentProperties.new.tap do |property|
-        property.principal_id = msi_identity
-        property.role_definition_id = contributor_role.id
-      end
-    end
-  end
-  authorization_client.role_assignments.create(resource_group.id, SecureRandom.uuid, role_assignment_params)
 
   puts "Install Managed Service Identity Extension"
   ext_name = 'msiextension'
